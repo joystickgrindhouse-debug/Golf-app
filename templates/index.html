@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rivalis Golf - AI Swing Coach</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="bg-overlay"></div>
+
+    <div class="container">
+        <div class="input-row">
+            <div class="input-section">
+                <div class="tab-buttons">
+                    <button class="tab-btn active" id="upload-tab" onclick="switchTab('upload')">Upload Image</button>
+                    <button class="tab-btn" id="camera-tab" onclick="switchTab('camera')">Record Swing</button>
+                </div>
+
+                <!-- Upload tab -->
+                <div class="tab-content" id="upload-content">
+                    <div class="upload-area" id="upload-area" onclick="document.getElementById('file-input').click()">
+                        <div class="upload-icon">&#9651;</div>
+                        <p>Drop your golf swing image here</p>
+                        <p class="hint">Supports JPG, PNG, WebP</p>
+                        <input type="file" id="file-input" accept="image/*" style="display:none" onchange="handleFileUpload(event)">
+                    </div>
+                    <div class="preview-container" id="upload-preview" style="display:none">
+                        <img id="preview-img" src="" alt="Preview">
+                        <button class="analyze-btn" onclick="analyzeUploadedImage()">Analyze Swing</button>
+                        <button class="reset-btn" onclick="resetUpload()">Upload New Image</button>
+                    </div>
+                </div>
+
+                <!-- Camera / Record tab -->
+                <div class="tab-content" id="camera-content" style="display:none">
+                    <div class="camera-container" id="camera-container">
+                        <video id="camera-feed" autoplay playsinline muted></video>
+                        <canvas id="camera-canvas" style="display:none"></canvas>
+                        <div class="camera-placeholder" id="camera-placeholder">
+                            <span>&#9654;</span>
+                            <p>Camera not started</p>
+                        </div>
+                        <div class="rec-badge" id="rec-badge" style="display:none">
+                            <span class="rec-dot"></span> REC <span id="rec-timer">0:00</span>
+                        </div>
+                    </div>
+
+                    <div class="record-hint" id="record-hint" style="display:none">
+                        <p>Stand back so your full body is visible, then press <strong>Record</strong> when ready to swing</p>
+                    </div>
+
+                    <div class="camera-controls">
+                        <button class="camera-btn" id="start-camera-btn" onclick="startCamera()">Start Camera</button>
+                        <button class="camera-btn record" id="record-btn" onclick="startRecording()" style="display:none">&#9679; Record Swing</button>
+                        <button class="camera-btn stop-record" id="stop-record-btn" onclick="stopRecording()" style="display:none">&#9632; Stop &amp; Analyze</button>
+                        <button class="camera-btn danger" id="stop-camera-btn" onclick="stopCamera()" style="display:none">&#9747; Stop Camera</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Single image result -->
+        <div class="results-section single-result" id="single-results-section" style="display:none">
+            <h2>Swing Analysis</h2>
+            <div class="single-result-inner">
+                <div class="result-image-container">
+                    <img id="result-img" src="" alt="Analysis Result">
+                </div>
+                <div class="feedback-container" id="feedback-container"></div>
+            </div>
+        </div>
+
+        <!-- Full swing video result -->
+        <div class="swing-results" id="swing-results-section" style="display:none">
+            <div class="swing-results-header">
+                <h2>Full Swing Analysis</h2>
+                <div class="swing-meta" id="swing-meta"></div>
+            </div>
+
+            <div class="overall-feedback-box" id="overall-feedback-box" style="display:none">
+                <h3 class="section-label">Overall Assessment</h3>
+                <div class="feedback-container" id="overall-feedback-container"></div>
+            </div>
+
+            <h3 class="section-label">Swing Phases</h3>
+            <div class="phases-grid" id="phases-grid"></div>
+        </div>
+
+        <!-- Placeholder -->
+        <div class="results-placeholder" id="results-placeholder">
+            <div class="placeholder-inner">
+                <div class="placeholder-icon">&#9670;</div>
+                <p>Upload an image or record your swing for AI analysis</p>
+            </div>
+        </div>
+
+        <div class="loading-overlay" id="loading-overlay" style="display:none">
+            <div class="spinner"></div>
+            <p id="loading-text">Analyzing your swing...</p>
+        </div>
+
+        <footer>
+            <p>RIVALIS GOLF &mdash; Powered by AI Pose Detection</p>
+        </footer>
+    </div>
+
+    <script src="/static/js/app.js"></script>
+</body>
+</html>
