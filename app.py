@@ -10,178 +10,303 @@ from mediapipe.tasks.python import vision as mp_vision
 
 app = Flask(__name__)
 
-MODEL_PATH = os.path.join(os.path.dirname(__file__), 'models', 'pose_landmarker_lite.task')
+MODEL_PATH = os.path.join(os.path.dirname(__file__), "models", "pose_landmarker_lite.task")
 
 POSE_LANDMARKS = {
-    'NOSE': 0,
-    'LEFT_EAR': 7,
-    'RIGHT_EAR': 8,
-    'LEFT_SHOULDER': 11,
-    'RIGHT_SHOULDER': 12,
-    'LEFT_ELBOW': 13,
-    'RIGHT_ELBOW': 14,
-    'LEFT_WRIST': 15,
-    'RIGHT_WRIST': 16,
-    'LEFT_HIP': 23,
-    'RIGHT_HIP': 24,
-    'LEFT_KNEE': 25,
-    'RIGHT_KNEE': 26,
-    'LEFT_ANKLE': 27,
-    'RIGHT_ANKLE': 28,
+    "LEFT_SHOULDER": 11,
+    "RIGHT_SHOULDER": 12,
+    "LEFT_ELBOW": 13,
+    "RIGHT_ELBOW": 14,
+    "LEFT_WRIST": 15,
+    "RIGHT_WRIST": 16,
+    "LEFT_HIP": 23,
+    "RIGHT_HIP": 24,
+    "LEFT_KNEE": 25,
+    "RIGHT_KNEE": 26,
+    "LEFT_ANKLE": 27,
+    "RIGHT_ANKLE": 28,
 }
 
-POSE_CONNECTIONS = [
-    (11, 12), (11, 13), (13, 15), (12, 14), (14, 16),
-    (11, 23), (12, 24), (23, 24), (23, 25), (24, 26),
-    (25, 27), (26, 28),
-    (0, 7), (0, 8),
-]
-
-SWING_PHASES = ['Address', 'Backswing', 'Top', 'Impact', 'Follow-Through', 'Finish']
+SWING_PHASES = ["Address", "Backswing", "Top", "Impact", "Follow-Through", "Finish"]
 
 
 def make_landmarker():
     base_options = mp_python.BaseOptions(model_asset_path=MODEL_PATH)
+
     options = mp_vision.PoseLandmarkerOptions(
         base_options=base_options,
-        output_segmentation_masks=False,
         min_pose_detection_confidence=0.45,
         min_pose_presence_confidence=0.45,
-        min_tracking_confidence=0.45
+        min_tracking_confidence=0.45,
     )
+
     return mp_vision.PoseLandmarker.create_from_options(options)
 
 
-def draw_pose_landmarks(image, landmarks, img_w, img_h, phase_label=None):
-    points = {}
-    for name, idx in POSE_LANDMARKS.items():
+def draw_pose_landmarks(image, landmarks, img_w, img_h, label=None):
+    for idx in POSE_LANDMARKS.values():
         lm = landmarks[idx]
         if lm.visibility > 0.3:
             x = int(lm.x * img_w)
             y = int(lm.y * img_h)
-            points[idx] = (x, y)
-            cv2.circle(image, (x, y), 5, (0, 220, 0), -1)
-            cv2.circle(image, (x, y), 7, (255, 255, 255), 1)
+            cv2.circle(image, (x, y), 5, (0, 255, 0), -1)
 
-    for start_idx, end_idx in POSE_CONNECTIONS:
-        if start_idx in points and end_idx in points:
-            cv2.line(image, points[start_idx], points[end_idx], (0, 180, 255), 2)
-
-    if phase_label:
-        overlay = image.copy()
-        cv2.rectangle(overlay, (0, 0), (img_w, 44), (0, 0, 0), -1)
-        cv2.addWeighted(overlay, 0.55, image, 0.45, 0, image)
-        cv2.putText(image, phase_label.upper(), (12, 30),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 60, 220), 2, cv2.LINE_AA)
-        cv2.putText(image, phase_label.upper(), (12, 30),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 1, cv2.LINE_AA)
-
-    return points
-
-
-def calc_angle(a, b, c):
-    a, b, c = np.array(a), np.array(b), np.array(c)
-    radians = np.arctan2(c[1]-b[1], c[0]-b[0]) - np.arctan2(a[1]-b[1], a[0]-b[0])
-    angle = np.abs(radians * 180.0 / np.pi)
-    if angle > 180:
-        angle = 360 - angle
-    return angle
+    if label:
+        cv2.putText(
+            image,
+            label.upper(),
+            (10, 30),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            1,
+            (255, 255, 255),
+            2,
+        )
 
 
 def frame_to_b64(frame):
-    _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 82])
-    return base64.b64encode(buffer).decode('utf-8')
+    _, buffer = cv2.imencode(".jpg", frame)
+    return base64.b64encode(buffer).decode("utf-8")
 
 
-def detect_phase_indices(wrist_y_series, total_frames):
-    n = len(wrist_y_series)
+def calc_angle(a, b, c):
+    a = np.array(a)
+    b = np.array(b)
+    c = np.array(c)
+
+    radians = np.arctan2(c[1]-b[1], c[0]-b[0]) - np.arctan2(a[1]-b[1], a[0]-b[0])
+    angle = np.abs(radians * 180.0 / np.pi)
+
+    if angle > 180:
+        angle = 360 - angle
+
+    return angle
+
+
+def detect_phase_indices(series, total_frames):
+    n = len(series)
+
     if n < 6:
         step = max(1, total_frames // 6)
         return [min(i * step, total_frames - 1) for i in range(6)]
 
-    series = np.array(wrist_y_series)
+    series = np.array(series)
 
-    address_idx = max(0, int(n * 0.05))
-    search_end = int(n * 0.65)
-    top_idx = int(np.argmin(series[:search_end])) if search_end > 0 else n // 3
-    backswing_idx = max(0, (address_idx + top_idx) // 2)
+    address = int(n * 0.05)
+    top = int(np.argmin(series[: int(n * 0.65)]))
+    backswing = (address + top) // 2
 
-    if top_idx < n - 1:
-        impact_search = series[top_idx:]
-        impact_offset = int(np.argmax(impact_search))
-        impact_idx = min(top_idx + impact_offset, int(n * 0.80))
-    else:
-        impact_idx = min(top_idx + 3, n - 1)
+    impact_offset = int(np.argmax(series[top:]))
+    impact = min(top + impact_offset, int(n * 0.8))
 
-    follow_idx = min((impact_idx + n - 1) // 2, n - 2)
-    finish_idx = min(max(follow_idx + 1, int(n * 0.90)), n - 1)
+    follow = min((impact + n - 1) // 2, n - 2)
+    finish = min(int(n * 0.9), n - 1)
 
-    return [address_idx, backswing_idx, top_idx, impact_idx, follow_idx, finish_idx]
+    return [address, backswing, top, impact, follow, finish]
 
 
-# (All swing analysis functions remain exactly as you provided)
-# ---- truncated explanation but NOT code ----
-# Everything below remains identical except final server start.
+def analyze_phase_landmarks(landmarks, phase):
+    feedback = []
+
+    lw = landmarks[POSE_LANDMARKS["LEFT_WRIST"]]
+    rw = landmarks[POSE_LANDMARKS["RIGHT_WRIST"]]
+
+    wrist_height = (lw.y + rw.y) / 2
+
+    if phase == "Address":
+        feedback.append({"type": "good", "text": "Setup detected"})
+
+    if phase == "Top":
+        if wrist_height < 0.4:
+            feedback.append({"type": "good", "text": "Full backswing height"})
+        else:
+            feedback.append({"type": "warning", "text": "Raise club higher at top"})
+
+    if phase == "Impact":
+        feedback.append({"type": "good", "text": "Impact frame detected"})
+
+    return feedback
 
 
-@app.route('/')
+def build_overall_feedback(wrist_series, landmarks_list):
+    feedback = []
+
+    if len(wrist_series) > 5:
+        diffs = np.diff(wrist_series)
+
+        if np.std(diffs) < 0.03:
+            feedback.append({"type": "good", "text": "Smooth swing tempo"})
+        else:
+            feedback.append({"type": "warning", "text": "Swing tempo inconsistent"})
+
+    return feedback
+
+
+def process_swing_video(video_path):
+    cap = cv2.VideoCapture(video_path)
+
+    if not cap.isOpened():
+        return {"error": "Could not open video"}
+
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    fps = cap.get(cv2.CAP_PROP_FPS) or 30
+
+    sample_count = min(80, total_frames)
+    sample_step = max(1, total_frames // sample_count)
+
+    frames = []
+    wrist_series = []
+    landmarks_list = []
+
+    frame_idx = 0
+
+    with make_landmarker() as landmarker:
+
+        while True:
+            ret, frame = cap.read()
+
+            if not ret:
+                break
+
+            if frame_idx % sample_step == 0:
+
+                rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                mp_img = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
+
+                result = landmarker.detect(mp_img)
+
+                if result.pose_landmarks:
+
+                    lms = result.pose_landmarks[0]
+
+                    lw = lms[POSE_LANDMARKS["LEFT_WRIST"]]
+                    rw = lms[POSE_LANDMARKS["RIGHT_WRIST"]]
+
+                    wrist_series.append((lw.y + rw.y) / 2)
+
+                    landmarks_list.append(lms)
+
+                    frames.append((frame_idx, frame.copy()))
+
+            frame_idx += 1
+
+    cap.release()
+
+    if not frames:
+        return {"error": "No frames processed"}
+
+    phases = detect_phase_indices(wrist_series, len(frames))
+
+    phase_results = []
+
+    for phase_name, idx in zip(SWING_PHASES, phases):
+
+        frame = frames[idx][1].copy()
+        img_h, img_w = frame.shape[:2]
+
+        lms = landmarks_list[idx]
+
+        draw_pose_landmarks(frame, lms, img_w, img_h, phase_name)
+
+        feedback = analyze_phase_landmarks(lms, phase_name)
+
+        phase_results.append(
+            {
+                "phase": phase_name,
+                "image": f"data:image/jpeg;base64,{frame_to_b64(frame)}",
+                "feedback": feedback,
+            }
+        )
+
+    overall = build_overall_feedback(wrist_series, landmarks_list)
+
+    return {
+        "phases": phase_results,
+        "overall": overall,
+        "frame_count": total_frames,
+        "duration_sec": round(total_frames / fps, 1),
+    }
+
+
+def analyze_golf_swing(image_data):
+
+    nparr = np.frombuffer(base64.b64decode(image_data), np.uint8)
+    img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+
+    if img is None:
+        return None, "Image decode failed"
+
+    h, w = img.shape[:2]
+
+    with make_landmarker() as landmarker:
+
+        rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+
+        mp_img = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
+
+        result = landmarker.detect(mp_img)
+
+        if not result.pose_landmarks:
+            return None, "No pose detected"
+
+        lms = result.pose_landmarks[0]
+
+        draw_pose_landmarks(img, lms, w, h)
+
+        feedback = analyze_phase_landmarks(lms, "Address")
+
+    return frame_to_b64(img), feedback
+
+
+@app.route("/")
 def index():
-    return render_template('index.html')
+    return render_template("index.html")
 
 
-@app.route('/analyze', methods=['POST'])
+@app.route("/analyze", methods=["POST"])
 def analyze():
+
     data = request.get_json()
-    if not data or 'image' not in data:
-        return jsonify({"error": "No image provided"}), 400
 
-    image_data = data['image']
-    if ',' in image_data:
-        image_data = image_data.split(',')[1]
+    image_data = data["image"]
 
-    try:
-        result_image, feedback = analyze_golf_swing(image_data)
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    if "," in image_data:
+        image_data = image_data.split(",")[1]
 
-    if result_image is None:
-        return jsonify({"error": str(feedback)}), 500
+    image, feedback = analyze_golf_swing(image_data)
 
-    return jsonify({
-        "image": f"data:image/jpeg;base64,{result_image}",
-        "feedback": feedback
-    })
+    return jsonify(
+        {"image": f"data:image/jpeg;base64,{image}", "feedback": feedback}
+    )
 
 
-@app.route('/analyze-video', methods=['POST'])
+@app.route("/analyze-video", methods=["POST"])
 def analyze_video():
-    if 'video' not in request.files:
-        return jsonify({"error": "No video provided"}), 400
 
-    video_file = request.files['video']
+    if "video" not in request.files:
+        return jsonify({"error": "No video uploaded"})
 
-    suffix = '.webm'
-    if video_file.filename and '.' in video_file.filename:
-        suffix = '.' + video_file.filename.rsplit('.', 1)[-1]
+    video = request.files["video"]
 
-    tmp_path = None
-    try:
-        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
-            video_file.save(tmp.name)
-            tmp_path = tmp.name
+    suffix = ".webm"
 
-        result = process_swing_video(tmp_path)
-        return jsonify(result)
+    if "." in video.filename:
+        suffix = "." + video.filename.rsplit(".", 1)[-1]
 
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
 
-    finally:
-        if tmp_path and os.path.exists(tmp_path):
-            os.unlink(tmp_path)
+        video.save(tmp.name)
+
+        path = tmp.name
+
+    result = process_swing_video(path)
+
+    os.remove(path)
+
+    return jsonify(result)
 
 
-# Render-compatible server start
-if __name__ == '__main__':
+if __name__ == "__main__":
+
     port = int(os.environ.get("PORT", 5000))
-    app.run(host='0.0.0.0', port=port, debug=False)
+
+    app.run(host="0.0.0.0", port=port)
